@@ -58,14 +58,14 @@ def projSceneRecBoW():
 
     #FEATURE = 'tiny image'
     #FEATURE = 'bag of words'
-    FEATURE = 'placeholder'
+    FEATURE = os.environ.get('SCENE_FEATURE', 'tiny image')
 
     #CLASSIFIER = 'nearest neighbor'
     #CLASSIFIER = 'support vector machine'
-    CLASSIFIER = 'placeholder'
+    CLASSIFIER = os.environ.get('SCENE_CLASSIFIER', 'nearest neighbor')
 
     # This is the path the script will look at to load images from.
-    data_path = '../data/'
+    data_path = os.environ.get('SCENE_DATA_PATH', os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data')))
 
     # This is the list of categories / directories to use. The categories are
     # somewhat sorted by similarity so that the confusion matrix looks more
@@ -81,7 +81,7 @@ def projSceneRecBoW():
     # Number of training examples per category to use. Max is 100. For
     # simplicity, we assume this is the number of test cases per category as
     # well.
-    num_train_per_cat = 100
+    num_train_per_cat = int(os.environ.get('SCENE_SAMPLES_PER_CATEGORY', '100'))
 
     # This function returns string arrays containing the file path for each train
     # and test image, as well as string arrays with the label of each train and
@@ -118,11 +118,13 @@ def projSceneRecBoW():
         # you need to re-generate the vocab (for example if you change its size
         # or the length of your feature vectors), simply delete the vocab.npy
         # file and re-run main.py
+        if os.path.isfile('vocab.npy') and np.load('vocab.npy').shape[0] != int(os.environ.get('SCENE_VOCAB_SIZE', '200')):
+            os.remove('vocab.npy')
         if not os.path.isfile('vocab.npy'):
             print('No existing visual word vocabulary found. Computing one from training images.')
 
             #Larger values will work better (to a point), but are slower to compute
-            vocab_size = 200
+            vocab_size = int(os.environ.get('SCENE_VOCAB_SIZE', '200'))
 
             # YOU CODE build_vocabulary (see student.py)
             vocab = build_vocabulary(train_image_paths, vocab_size)
@@ -158,7 +160,8 @@ def projSceneRecBoW():
 
     if CLASSIFIER.lower() == 'nearest neighbor':
         # YOU CODE nearest_neighbor_classify (see student.py)
-        predicted_categories = nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats)
+        predicted_categories = nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats,
+                                                         k=int(os.environ.get('SCENE_K', '1')))
 
     elif CLASSIFIER.lower() == 'support vector machine':
         # YOU CODE svm_classify (see student.py)
