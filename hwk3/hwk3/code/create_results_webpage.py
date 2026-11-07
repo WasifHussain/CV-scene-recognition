@@ -88,8 +88,11 @@ def create_results_webpage(train_image_paths, test_image_paths,
 		# statement will be invalid!
 		# TODO: That's an old comment left over from the matlab code that I don't
 		# think still applies
+		# Save numeric counts and normalized rates for reproducible analysis in Colab.
+		np.savetxt('results_webpage/confusion_counts.csv', confusion_matrix.astype(int), fmt='%d', delimiter=',')
 		num_test_per_cat = len(test_labels) / num_categories
 		confusion_matrix = confusion_matrix / float(num_test_per_cat)
+		np.savetxt('results_webpage/confusion_matrix.csv', confusion_matrix, fmt='%.8f', delimiter=',')
 		accuracy = np.mean(np.diag(confusion_matrix))
 
 		print('Accuracy (mean of diagonal of confusion matrix) is {:2.3%}'.format(accuracy))
