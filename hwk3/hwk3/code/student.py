@@ -1,10 +1,38 @@
 import numpy as np
 import matplotlib
 from skimage.io import imread
-from skimage.color import rgb2grey
+from skimage.color import rgb2gray
+from skimage.util import img_as_float
+from sklearn.cluster import KMeans
+from sklearn.svm import LinearSVC
 from skimage.feature import hog
 from skimage.transform import resize
 from scipy.spatial.distance import cdist
+
+
+HOG_IMAGE_SIZE = (128, 128)
+HOG_PIXELS_PER_CELL = (8, 8)
+HOG_CELLS_PER_BLOCK = (2, 2)
+HOG_ORIENTATIONS = 9
+HOG_DESCRIPTOR_LENGTH = 36
+VOCAB_DESCRIPTORS_PER_IMAGE = 30
+RANDOM_SEED = 42
+
+def _grayscale_image(path):
+    image = imread(path)
+    if image.ndim == 3:
+        if image.shape[2] == 4: image = image[:, :, :3]
+        if image.shape[2] == 3: image = rgb2gray(image)
+        elif image.shape[2] == 1: image = image[:, :, 0]
+        else: raise ValueError(f"Unexpected image channels in {path}: {image.shape}")
+    return img_as_float(image)
+
+def _hog_descriptors(path):
+    image = resize(_grayscale_image(path), HOG_IMAGE_SIZE, anti_aliasing=True)
+    features = hog(image, orientations=HOG_ORIENTATIONS,
+                   pixels_per_cell=HOG_PIXELS_PER_CELL, cells_per_block=HOG_CELLS_PER_BLOCK,
+                   block_norm='L2-Hys', feature_vector=True)
+    return features.reshape(-1, HOG_DESCRIPTOR_LENGTH).astype(np.float32)
 
 def get_tiny_images(image_paths):
     '''
@@ -33,13 +61,23 @@ def get_tiny_images(image_paths):
     skimage.transform.resize for details:
     http://scikit-image.org/docs/dev/api/skimage.transform.html#skimage.transform.resize
 
-    Suggested functions: skimage.transform.resize, skimage.color.rgb2grey,
+    Suggested functions: skimage.transform.resize, skimage.color.rgb2gray,
                          skimage.io.imread, np.reshape
     '''
 
-    #TODO: Implement this function!
-
-    return np.array([])
+    tiny_features = np.zeros((len(image_paths), 256), dtype=np.float32)
+    for i, path in enumerate(image_paths):
+        image = _grayscale_image(path)
+        h, w = image.shape
+        side = min(h, w)
+        top, left = (h-side)//2, (w-side)//2
+        image = image[top:top+side, left:left+side]
+        feature = resize(image, (16, 16), anti_aliasing=True).ravel().astype(np.float32)
+        feature -= feature.mean()
+        norm = np.linalg.norm(feature)
+        if norm > 0: feature /= norm
+        tiny_features[i] = feature
+    return tiny_features
 
 def build_vocabulary(image_paths, vocab_size):
     '''
@@ -111,9 +149,20 @@ def build_vocabulary(image_paths, vocab_size):
     details)
     '''
 
-    #TODO: Implement this function!
-
-    return np.array([])
+    rng = np.random.default_rng(RANDOM_SEED)
+    sampled = []
+    for path in image_paths:
+        descriptors = _hog_descriptors(path)
+        count = min(VOCAB_DESCRIPTORS_PER_IMAGE, len(descriptors))
+        indices = rng.choice(len(descriptors), size=count, replace=False)
+        sampled.append(descriptors[indices])
+    if not sampled: raise ValueError("No training images supplied")
+    training_descriptors = np.vstack(sampled)
+    if len(training_descriptors) < vocab_size: raise ValueError("Not enough HOG descriptors")
+    print(f"Clustering {len(training_descriptors):,} HOG descriptors into {vocab_size} visual words...")
+    model = KMeans(n_clusters=vocab_size, max_iter=100, n_init=3, random_state=RANDOM_SEED)
+    model.fit(training_descriptors)
+    return model.cluster_centers_.astype(np.float32)
 
 def get_bags_of_words(image_paths):
     '''
@@ -148,9 +197,14 @@ def get_bags_of_words(image_paths):
     vocab = np.load('vocab.npy')
     print('Loaded vocab from file.')
 
-    #TODO: Implement this function!
-
-    return np.array([])
+    histograms = np.zeros((len(image_paths), len(vocab)), dtype=np.float32)
+    for i, path in enumerate(image_paths):
+        descriptors = _hog_descriptors(path)
+        closest = np.argmin(cdist(descriptors, vocab, 'euclidean'), axis=1)
+        hist = np.bincount(closest, minlength=len(vocab)).astype(np.float32)
+        if hist.sum() > 0: hist /= hist.sum()
+        histograms[i] = hist
+    return histograms
 
 def svm_classify(train_image_feats, train_labels, test_image_feats):
     '''
@@ -175,11 +229,11 @@ def svm_classify(train_image_feats, train_labels, test_image_feats):
     above in just one call! Be sure to read the documentation carefully.
     '''
 
-    # TODO: Implement this function!
+    svm = LinearSVC(C=50.0, dual=False, max_iter=10000, random_state=RANDOM_SEED)
+    svm.fit(train_image_feats, np.asarray(train_labels))
+    return svm.predict(test_image_feats)
 
-    return np.array([])
-
-def nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats):
+def nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats, k=1):
     '''
     This function will predict the category for every test image by finding
     the training image with most similar features. You will complete the given
@@ -218,16 +272,15 @@ def nearest_neighbor_classify(train_image_feats, train_labels, test_image_feats)
         scipy.spatial.distance.cdist, np.argsort, scipy.stats.mode
     '''
 
-    k = 1
-
-    # Gets the distance between each test image feature and each train image feature
-    # e.g., cdist
+    if not 1 <= k <= len(train_labels):
+        raise ValueError("k must be between 1 and the number of training samples")
     distances = cdist(test_image_feats, train_image_feats, 'euclidean')
-
-    #TODO:
-    # 1) Find the k closest features to each test image feature in euclidean space
-    # 2) Determine the labels of those k features
-    # 3) Pick the most common label from the k
-    # 4) Store that label in a list
-
-    return np.array([])
+    labels = np.asarray(train_labels)
+    sorted_indices = np.argsort(distances, axis=1)[:, :k]
+    predictions = []
+    for indices in sorted_indices:
+        neighbor_labels = labels[indices]
+        choices, counts = np.unique(neighbor_labels, return_counts=True)
+        winners = set(choices[counts == counts.max()])
+        predictions.append(next(label for label in neighbor_labels if label in winners))
+    return np.asarray(predictions)
